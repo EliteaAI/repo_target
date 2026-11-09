@@ -9,6 +9,53 @@ from .common import GithubClient
 from .common import EliteAClient
 
 
+# Repo whose tag is created by its own GitHub workflow (see tag_or_dispatch)
+UI_REPO_NAME = "EliteaUI"
+
+# repository_dispatch event types - each one starts exactly one EliteaUI workflow
+UI_DISPATCH_TAG_RELEASE = "repo-tag-release"                  # release_tag_build.yml
+UI_DISPATCH_TAG_RELEASE_FROM_MAIN = "repo-tag-release-from-main"  # release_branch_build.yml
+
+
+def tag_or_dispatch(  # pylint: disable=R0913,R0917
+        config, github_client,
+        org, repo_name,
+        release_tag, release_tag_message,
+        target_sha, ui_event_type,
+    ):
+    """
+        Tag a repo at target_sha.
+
+        For EliteaUI (when 'ui_build_dispatch: true' is set in settings) the tag is
+        NOT created here. Instead a repository_dispatch is sent, and the EliteaUI
+        workflow subscribed to ui_event_type creates the tag itself (with the
+        workflow's own GITHUB_TOKEN, so the tag push starts no other workflow)
+        and then builds + attaches EliteAUI.zip.
+    """
+    if repo_name == UI_REPO_NAME and config.get("ui_build_dispatch", False):
+        log.info(
+            "Requesting UI tag + build (%s): %s - %s @ %s",
+            ui_event_type, org, repo_name, target_sha,
+        )
+        #
+        github_client.repository_dispatch(
+            org, repo_name,
+            ui_event_type,
+            {
+                "tag": release_tag,
+                "message": release_tag_message,
+                "sha": target_sha,
+            },
+        )
+        return
+    #
+    github_client.create_or_update_tag_and_ref(
+        org, repo_name,
+        release_tag, release_tag_message,
+        target_sha,
+    )
+
+
 def list_repos_task(*_args, **_kwargs):
     """ Task """
     config = repo_core.get_settings()
@@ -71,10 +118,12 @@ def tag_release_from_main_task(*_args, **kwargs):  # pylint: disable=R0912,R0914
                     org, repo_name, repo["default_branch"]
                 )
                 #
-                github_client.create_or_update_tag_and_ref(
+                tag_or_dispatch(
+                    config, github_client,
                     org, repo_name,
                     release_tag, release_tag_message,
                     branch["commit"]["sha"],
+                    UI_DISPATCH_TAG_RELEASE_FROM_MAIN,
                 )
             except:  # pylint: disable=W0702
                 log.exception("Failed to apply tag: %s - %s", org, repo_name)
@@ -311,10 +360,12 @@ def tag_release_task(*_args, **kwargs):  # pylint: disable=R0912,R0914
                 #
                 release_branch = github_client.get_branch(org, repo_name, release_branch_name)
                 #
-                github_client.create_or_update_tag_and_ref(
+                tag_or_dispatch(
+                    config, github_client,
                     org, repo_name,
                     release_name, release_tag_message,
                     release_branch["commit"]["sha"],
+                    UI_DISPATCH_TAG_RELEASE,
                 )
             except:  # pylint: disable=W0702
                 log.exception("Failed to tag: %s - %s", org, repo_name)

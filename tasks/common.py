@@ -237,6 +237,25 @@ class GithubClient:  # pylint: disable=R0913
         #
         response.raise_for_status()
 
+    def repository_dispatch(
+            self,
+            owner, repo,
+            event_type, client_payload,
+        ):
+        """ API """
+        response = self.session.post(
+            f"https://api.github.com/repos/{owner}/{repo}/dispatches",
+            json={
+                "event_type": event_type,
+                "client_payload": client_payload,
+            },
+        )
+        #
+        if response.status_code != 204:
+            raise RuntimeError(
+                f"Failed to send dispatch: {response.status_code} {response.text}"
+            )
+
     def create_or_update_tag_and_ref(  # pylint: disable=R0917
             self,
             owner, repo,
